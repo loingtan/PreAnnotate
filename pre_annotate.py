@@ -1,7 +1,7 @@
 import os
 import json
 import argparse
-from pre_annotate_label.tool import VietnamesePOSTagger
+from tool import VietnamesePOSTagger
 import glob
 from tqdm import tqdm
 import re
@@ -14,28 +14,36 @@ logging.basicConfig(level=logging.INFO,
 
 
 def find_word_indices(sentence_text, word, search_start):
-    """Find the start and end index of a word within text"""
+    """Find the start and end index of a word within text, preserving punctuation positions"""
     start_index = sentence_text.find(word, search_start)
     if start_index != -1:
         end_index = start_index + len(word)
-        return start_index, end_index
-    else:
-        logging.warning(
-            f"Could not find exact word '{word}' starting from index {search_start}")
-        return None, None
+
+        # Verify the match is a whole word by checking boundaries
+        prev_char = sentence_text[start_index - 1] if start_index > 0 else ' '
+        next_char = sentence_text[end_index] if end_index < len(
+            sentence_text) else ' '
+
+        # Check if the last character of the word is punctuation
+        last_char = word[-1] if word else ''
+        if last_char in '.,!?:;"\'()[]{}':
+            end_index -= 1  # Adjust end index to exclude punctuation
+
+        if (prev_char.isspace() or prev_char in '.,!?:;"\'()[]{}') and \
+           (next_char.isspace() or next_char in '.,!?:;"\'()[]{}' or next_char == ''):
+            return start_index, end_index
+
+        # If not a whole word, try searching from the next position
+        return find_word_indices(sentence_text, word, start_index + 1)
+    return None, None
 
 
 def clean_sentence(sentence):
-    """Remove <s> and </s> tags from a sentence if present"""
-    # Remove starting <s> tag
-    if sentence.startswith("<s>"):
-        sentence = sentence[3:].strip()
-
-    # Remove ending </s> tag
-    if sentence.endswith("</s>"):
-        sentence = sentence[:-4].strip()
-
-    return sentence
+    """Remove <s> and </s> tags from a sentence while preserving internal content exactly"""
+    # Remove only the outermost <s> and </s> tags
+    if sentence.startswith("<s>") and sentence.endswith("</s>"):
+        return sentence[3:-4].strip()
+    return sentence.strip()
 
 
 def split_sentences(text):
@@ -64,7 +72,12 @@ def process_file(file_path, tagger):
         return None
 
     # Split text into sentences
-    sentences = split_sentences(text)
+    sentences = []
+    for line in text.splitlines():
+        if line.strip():
+            cleaned = clean_sentence(line)
+            if cleaned:
+                sentences.append(cleaned)
 
     result_objects = []
     for sentence in sentences:
@@ -72,7 +85,6 @@ def process_file(file_path, tagger):
             continue
 
         try:
-            # Create sentence data object
             data_obj = {
                 "data": {
                     "text": sentence
@@ -87,16 +99,13 @@ def process_file(file_path, tagger):
             current_offset = 0
 
             for word, tag in tagged_tokens:
-                if tag == 'CH':  # Skip punctuation/special tags if needed
-                    continue
-
                 # Find word in sentence
                 word_start, word_end = find_word_indices(
                     sentence, word, current_offset)
 
                 if word_start is not None:
                     annotations.append({
-                        "id": str(uuid.uuid4())[:8],  # Create a unique ID
+                        "id": str(uuid.uuid4())[:8],
                         "from_name": "label",
                         "to_name": "text",
                         "type": "labels",
@@ -109,14 +118,12 @@ def process_file(file_path, tagger):
                     })
                     current_offset = word_end
 
-            # Add annotations to data object
             if annotations:
                 data_obj["predictions"] = [{
                     "model_version": "vietnamese_pos_tagger",
-                    "score": 0.8,  # Default confidence score
+                    "score": 0.8,
                     "result": annotations
                 }]
-
                 result_objects.append(data_obj)
 
         except Exception as e:
