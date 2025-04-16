@@ -19,28 +19,27 @@ def find_word_indices(sentence_text, word, search_start):
     if start_index != -1:
         end_index = start_index + len(word)
 
-        # Verify the match is a whole word by checking boundaries
+     
         prev_char = sentence_text[start_index - 1] if start_index > 0 else ' '
         next_char = sentence_text[end_index] if end_index < len(
             sentence_text) else ' '
 
-        # Check if the last character of the word is punctuation
         last_char = word[-1] if word else ''
         if last_char in '.,!?:;"\'()[]{}':
-            end_index -= 1  # Adjust end index to exclude punctuation
+            end_index -= 1  
 
         if (prev_char.isspace() or prev_char in '.,!?:;"\'()[]{}') and \
            (next_char.isspace() or next_char in '.,!?:;"\'()[]{}' or next_char == ''):
             return start_index, end_index
 
-        # If not a whole word, try searching from the next position
+        #
         return find_word_indices(sentence_text, word, start_index + 1)
     return None, None
 
 
 def clean_sentence(sentence):
     """Remove <s> and </s> tags from a sentence while preserving internal content exactly"""
-    # Remove only the outermost <s> and </s> tags
+
     if sentence.startswith("<s>") and sentence.endswith("</s>"):
         return sentence[3:-4].strip()
     return sentence.strip()
